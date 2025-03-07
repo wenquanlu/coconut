@@ -204,6 +204,15 @@ def main():
     # cot steps from 'test' set
     cot_val = ["\n".join(d["steps"]) for d in json.load(open(configs.val_path))]
 
+    """
+    get_dataset format
+    sample = {
+        "question_tokenized": question_tokenized,
+        "steps_tokenized": steps_tokenized,
+        "answer_tokenized": answer_tokenized,
+        "idx": sample["idx"],
+    }
+    """
     base_dataset_valid = get_dataset(
         configs.val_path, tokenizer, max_size=32 if configs.debug else 100000000
     )
@@ -267,6 +276,7 @@ def main():
             sampler=DistributedSampler(dataset_gen_val, shuffle=False),
         )
 
+        # start training here
         if not configs.only_eval:
 
             dataset_train = get_cot_latent_dataset(
@@ -332,6 +342,7 @@ def main():
                 dynamic_ncols=True,
             )
 
+            # Training Loop
             for step, batch in enumerate(train_dataloader):
 
                 if step == 0 and wandb_run and rank == 0:
@@ -365,8 +376,12 @@ def main():
                 outputs = parallel_model(**batch)
 
                 loss = outputs.loss / configs.gradient_accumulation_steps
+
+                # backpropagate loss
+                # this adds the gradient, instead of replacing them
                 loss.backward()
 
+                # gradient accumulation
                 if (step + 1) % configs.gradient_accumulation_steps == 0 or step == len(
                     train_dataloader
                 ) - 1:

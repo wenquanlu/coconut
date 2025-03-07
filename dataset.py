@@ -107,7 +107,7 @@ class MyCollator:
 
         ("x" is word token, "-" is pad token)
         """
-
+        # collate a batch
         earliest_latent = [
             feature["input_ids"].index(self.latent_id)
             for feature in features
@@ -115,30 +115,43 @@ class MyCollator:
         ]
 
         if len(earliest_latent) > 0:  # if there are continuous thoughts in the sequence
+
+            # latest! earliest latent
             latest_earliest_latent = max(earliest_latent)
+
             for feature in features:
                 if self.latent_id in feature["input_ids"]:
+                    # pad so that earliest latent of all features aligned
                     n_tok_pad = latest_earliest_latent - feature["input_ids"].index(
                         self.latent_id
                     )
                 else:
                     n_tok_pad = 0
+                
+                # pad 0 for padding position, however, seems like first token in sentence also has position id of 0
                 feature["position_ids"] = [0] * n_tok_pad + list(
                     range(len(feature["input_ids"]))
                 )
+                # pad the input_ids
                 feature["input_ids"] = [
                     self.tokenizer.pad_token_id
                 ] * n_tok_pad + feature["input_ids"]
+
+                # this prevents loss function from considering padded labels during training
                 if "labels" in feature:
                     feature["labels"] = [self.label_pad_token_id] * n_tok_pad + feature[
                         "labels"
                     ]
+                
+                # padding does not attend in attention
                 feature["attention_mask"] = [0] * n_tok_pad + feature["attention_mask"]
 
         return_tensors = "pt"
 
         label_name = "label" if "label" in features[0].keys() else "labels"
 
+        # not label nor position_id
+        # contain "input_ids" and "attention_mask"
         non_label_position_features = [
             {
                 k: v
@@ -174,6 +187,7 @@ class MyCollator:
         if labels is not None:
             max_label_length = max(len(l) for l in labels)
 
+            # add labels back to batch, and padding
             batch["labels"] = [
                 label + [self.label_pad_token_id] * (max_label_length - len(label))
                 for label in labels
@@ -183,6 +197,7 @@ class MyCollator:
         if position_ids is not None:
             max_pos_length = max(len(l) for l in position_ids)
 
+            # add position_ids back to batch, and padding
             batch["position_ids"] = [
                 position_id + [0] * (max_pos_length - len(position_id))
                 for position_id in position_ids
