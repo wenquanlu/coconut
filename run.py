@@ -150,7 +150,7 @@ def main():
         # initialize the new token embeddings with a known token
         # it helps stablize the training
         for token_id in [latent_id, start_id, end_id]:
-            target_embedding = embeddings.weight.data[token_id]
+            target_embedding = embeddings.weight.data[target_id] #target_embedding = embeddings.weight.data[token_id]
             embeddings.weight.data[token_id] = target_embedding
             # The input embeddings and lm heads are tied in GPT2. So the code below is not necessary
             lm_head = model.lm_head
@@ -195,10 +195,13 @@ def main():
         print(parallel_model)
 
     # prepare the ground truth answer and cot for evaluation
+    # question from 'test' set
     question_val = [d["question"] for d in json.load(open(configs.val_path))]
+    # answer from 'test' set
     answers_val = [
         d["answer"].replace(",", "").strip() for d in json.load(open(configs.val_path))
     ]
+    # cot steps from 'test' set
     cot_val = ["\n".join(d["steps"]) for d in json.load(open(configs.val_path))]
 
     base_dataset_valid = get_dataset(
@@ -239,6 +242,7 @@ def main():
 
     collator = MyCollator(tokenizer, latent_id=latent_id, label_pad_token_id=-100)
 
+    # start training
     for epoch in range(configs.resume, configs.num_epochs):
 
         scheduled_stage = (

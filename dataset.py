@@ -73,6 +73,15 @@ def get_dataset(path, tokenizer, max_size=1000000000):
         + dataset[0]["answer_tokenized"]
     )
 
+    # each entry in dataset is of format 
+    """
+    sample = {
+            "question_tokenized": question_tokenized,
+            "steps_tokenized": steps_tokenized,
+            "answer_tokenized": answer_tokenized,
+            "idx": sample["idx"],
+        }
+    """
     return dataset
 
 

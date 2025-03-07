@@ -39,31 +39,31 @@ class Coconut(nn.Module):
     def forward(self, input_ids, attention_mask, labels, position_ids, **kwargs):
 
         logits = []
-
+        # input_ids: (batch, seq_len, )
         latent_indices = (
             input_ids == self.latent_token_id
-        ).nonzero()  # (num_latent_tokens_in_the_batch, 2)
+        ).nonzero()  # (num_latent_tokens_in_the_batch, 2) coordinate of the token that are latent token
 
         latent_lists = [
             [idx[1].item() for idx in latent_indices if idx[0] == i]
             for i in range(input_ids.shape[0])
         ]  # bs, num_latent_tokens_in_the_instance (difference across the batch)
 
-        max_n_latents = max([len(l) for l in latent_lists])
+        max_n_latents = max([len(l) for l in latent_lists]) # max number of latent token across the batch
 
-        next_compute_range = (0, input_ids.shape[1])
+        next_compute_range = (0, input_ids.shape[1]) # (0, seq_len)
         inputs_embeds = self.embedding(input_ids)
 
         if max_n_latents > 0:
             next_compute_range = (0, latent_indices[:, 1].min().item())
-            # before the earliest latent token position
+            # before the earliest latent token position across the batch
 
         kv_cache = None
 
         for pass_idx in range(max_n_latents):
 
             if kv_cache == None:
-                # first forward pass
+                # forward pass within a seq
                 outputs = self.base_causallm(
                     inputs_embeds=inputs_embeds[
                         :, next_compute_range[0] : next_compute_range[1], :
@@ -75,11 +75,11 @@ class Coconut(nn.Module):
                         :, next_compute_range[0] : next_compute_range[1]
                     ],
                     output_hidden_states=True,
-                )
+                ) # first pass before the first latent latent token
                 hidden_states_offset = 0
 
             else:
-                # extract kv cache to reuse
+                # extract kv cache to reuse (Layer, Batch, Head, Seq_len, Dimension)
                 past_key_values = [
                     (
                         k[:, :, : next_compute_range[0], :],
@@ -110,12 +110,13 @@ class Coconut(nn.Module):
             next_compute_range = (
                 next_compute_range[1],
                 (
-                    input_ids.shape[1]
-                    if pass_idx + 1 >= max_n_latents
-                    else next_compute_range[1] + 1
+                    input_ids.shape[1] # seq_len
+                    if pass_idx + 1 >= max_n_latents # whole seq, until the end
+                    else next_compute_range[1] + 1 # next consecutive position
                 ),
             )
 
+            # hidden states: (layer, batch, seq_len, dim)
             hidden_states = outputs.hidden_states[
                 -1
             ]  # Get the last layer hidden states
@@ -126,7 +127,7 @@ class Coconut(nn.Module):
             # first decide the positions to feedback
             filling_indices = [
                 (instance_idx, mask_list[pass_idx])
-                for instance_idx, mask_list in enumerate(latent_lists)
+                for instance_idx, mask_list in enumerate(latent_lists) # enumerate over batch
                 if len(mask_list) > pass_idx
             ]
 
@@ -223,14 +224,18 @@ class Coconut(nn.Module):
                 0, input_ids.shape[1], dtype=torch.long, device=input_ids.device
             ).reshape(1, -1),
         )
+        # return all embeddings
         inputs_embeds = outputs.inputs_embeds
 
         # get the first token using the current hidden state
         next_token = torch.argmax(outputs.logits[0, -1]).item()
         tokens.append(next_token)
+
+
         new_token_embed = self.embedding(
             torch.tensor(next_token, device=input_ids.device)
         ).view(1, 1, -1)
+        # all embeds before plus the new embed <- new embed converted from token, not continuous
         new_inputs_embeds = torch.cat((inputs_embeds, new_token_embed), dim=1)
 
         # get other tokens
@@ -241,6 +246,8 @@ class Coconut(nn.Module):
             if next_token == self.eos_token_id:
                 break
             tokens.append(next_token)
+
+            # why it is still doing this? not using the continuous state 
             new_token_embed = self.embedding(
                 torch.tensor(next_token, device=input_ids.device)
             ).view(1, 1, -1)
